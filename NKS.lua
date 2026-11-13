@@ -3,6 +3,7 @@
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
 local Lighting = game:GetService("Lighting")
 local VirtualUser = game:GetService("VirtualUser")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -15,7 +16,9 @@ local AdminCommandRemote = ReplicatedStorage.Remotes.Admin.Command
 if _G.NKSCleanup then pcall(_G.NKSCleanup) end
 
 local state = {
-    autoRound = false,
+    playtimeTwoMinutes = false,
+    skipIntermission = false,
+    skipVote = false,
     autoEvent = false,
     antiNextbot = false,
     antiAfk = false,
@@ -34,6 +37,8 @@ local config = {
     skyHeight = 1000,
     skyRadius = 100,
     windowKey = "RightShift",
+    noclipKey = "RightAlt",
+    showFloatingButton = true,
     skySpeed = 0.8,
     nextbotRange = 100,
     eventInterval = 0.12,
@@ -317,20 +322,15 @@ local Tabs = {
         Desc = "Session at a glance",
         Icon = "layout-dashboard",
     }),
-    Automation = Window:Tab({
-        Title = "Automation",
-        Desc = "Rounds, collection and idle protection",
+    Farming = Window:Tab({
+        Title = "Farming",
+        Desc = "Round control, tokens, orbit and idle protection",
         Icon = "repeat-2",
     }),
     Survival = Window:Tab({
         Title = "Survival",
         Desc = "Movement and visibility",
         Icon = "shield",
-    }),
-    Orbit = Window:Tab({
-        Title = "Sky Orbit",
-        Desc = "Altitude, radius and orbit speed",
-        Icon = "orbit",
     }),
     Settings = Window:Tab({
         Title = "Settings",
@@ -387,8 +387,10 @@ local ActiveCard = Tabs.Dashboard:Paragraph({
 })
 
 local featureLabels = {
-    {"autoRound", "Auto Time Skip"},
-    {"autoEvent", "Auto Farm Event"},
+    {"playtimeTwoMinutes", "Playtime 2 Minutes"},
+    {"skipIntermission", "Skip Intermission"},
+    {"skipVote", "Skip Vote"},
+    {"autoEvent", "Farm Token"},
     {"antiAfk", "Anti AFK"},
     {"antiNextbot", "Anti NextBots"},
     {"noclip", "Noclip"},
@@ -414,6 +416,7 @@ local function refreshOverview()
     for _, feature in ipairs(featureLabels) do
         if state[feature[1]] then active[#active + 1] = feature[2] end
     end
+    if config.specialRound then active[#active + 1] = "Special Round · " .. config.specialRound end
     local summary = #active > 0 and table.concat(active, "  ·  ") or "All features are off"
     if summary ~= runtime.lastFeatureSummary then
         runtime.lastFeatureSummary = summary
@@ -549,9 +552,9 @@ local function setToggle(key, enabled, source, fromUi)
     })
 end
 
-local Automation = Tabs.Automation:Section({
-    Title = "Automation controls",
-    Desc = "Round flow, event collection and idle protection",
+local RoundControl = Tabs.Farming:Section({
+    Title = "Round Control",
+    Desc = "Independent round actions; admin access required",
     Icon = "repeat-2",
     Opened = true,
     Box = true,
@@ -567,18 +570,36 @@ local Survival = Tabs.Survival:Section({
     BoxBorder = true,
 })
 
-controls.autoRound = Automation:Toggle({
-    Title = "Auto Time Skip",
-    Desc = "Skip voting / intermission and the final 60 seconds. Requires admin access.",
+controls.playtimeTwoMinutes = RoundControl:Toggle({
+    Title = "Playtime 2 Minutes",
+    Desc = "Skip the final 60 seconds at the two-minute playtime mark. Requires admin access.",
     Icon = "timer-reset",
-    Value = state.autoRound,
-    Flag = "auto_round",
-    Callback = function(value) setToggle("autoRound", value, "Auto Time Skip", true) end,
+    Value = false,
+    Flag = "playtime_two_minutes",
+    Callback = function(value) setToggle("playtimeTwoMinutes", value, "Playtime 2 Minutes", true) end,
 })
 
-controls.specialRound = Automation:Dropdown({
+controls.skipIntermission = RoundControl:Toggle({
+    Title = "Skip Intermission",
+    Desc = "Skip only intermission. Does not enable vote or playtime skipping.",
+    Icon = "fast-forward",
+    Value = false,
+    Flag = "skip_intermission",
+    Callback = function(value) setToggle("skipIntermission", value, "Skip Intermission", true) end,
+})
+
+controls.skipVote = RoundControl:Toggle({
+    Title = "Skip Vote",
+    Desc = "Skip only the map voting phase. Requires admin access.",
+    Icon = "skip-forward",
+    Value = false,
+    Flag = "skip_vote",
+    Callback = function(value) setToggle("skipVote", value, "Skip Vote", true) end,
+})
+
+controls.specialRound = RoundControl:Dropdown({
     Title = "Special Round",
-    Desc = "Choose the special round to request before an intermission skip.",
+    Desc = "Request at intermission, even with Skip Intermission off. None disables it; requires admin.",
     Values = specialRoundValues,
     Value = "None",
     AllowNone = false,
@@ -589,21 +610,40 @@ controls.specialRound = Automation:Dropdown({
             config.specialRound = value
         end
         runtime.specialRoundSent = false
+        refreshOverview()
         setStatus(config.specialRound and ("Special Round selected · " .. config.specialRound)
             or "Special Round disabled")
     end,
 })
 
-controls.autoEvent = Automation:Toggle({
-    Title = "Auto Farm Event",
+local TokenFarming = Tabs.Farming:Section({
+    Title = "Token Farming",
+    Desc = "Event token collection",
+    Icon = "ticket",
+    Opened = true,
+    Box = true,
+    BoxBorder = true,
+})
+
+controls.autoEvent = TokenFarming:Toggle({
+    Title = "Farm Token",
     Desc = "Moves to the nearest event ticket. Pauses automatically during Sky Orbit.",
     Icon = "ticket",
     Value = false,
     Flag = "auto_event",
-    Callback = function(value) setToggle("autoEvent", value, "Auto Farm Event", true) end,
+    Callback = function(value) setToggle("autoEvent", value, "Farm Token", true) end,
 })
 
-controls.antiAfk = Automation:Toggle({
+local IdleProtection = Tabs.Farming:Section({
+    Title = "Idle Protection",
+    Desc = "Independent idle protection",
+    Icon = "clock-3",
+    Opened = true,
+    Box = true,
+    BoxBorder = true,
+})
+
+controls.antiAfk = IdleProtection:Toggle({
     Title = "Anti AFK",
     Desc = "Responds only when Roblox reports inactivity.",
     Icon = "clock-3",
@@ -648,15 +688,18 @@ controls.fullBright = Survival:Toggle({
     Callback = function(value) setToggle("fullBright", value, "FullBright", true) end,
 })
 
-Tabs.Orbit:Paragraph({
+local Orbit = Tabs.Farming:Section({
     Title = "Sky Orbit",
     Desc = "A high-altitude route. Your starting position is restored on exit.",
     Icon = "orbit",
+    Opened = true,
+    Box = true,
+    BoxBorder = true,
 })
 
-controls.skyFarm = Tabs.Orbit:Toggle({
+controls.skyFarm = Orbit:Toggle({
     Title = "Enable Sky Orbit",
-    Desc = "Automation and Nextbot movement remain paused while orbiting.",
+    Desc = "Token collection and Nextbot movement pause while orbiting. Round controls stay independent.",
     Icon = "power",
     Value = false,
     Flag = "sky_farm",
@@ -664,7 +707,7 @@ controls.skyFarm = Tabs.Orbit:Toggle({
 })
 
 local OrbitSliders = {}
-OrbitSliders.height = Tabs.Orbit:Slider({
+OrbitSliders.height = Orbit:Slider({
     Title = "Height",
     Desc = "Vertical distance above the activation point.",
     Step = 50,
@@ -676,7 +719,7 @@ OrbitSliders.height = Tabs.Orbit:Slider({
     end,
 })
 
-OrbitSliders.radius = Tabs.Orbit:Slider({
+OrbitSliders.radius = Orbit:Slider({
     Title = "Radius",
     Desc = "Horizontal orbit radius.",
     Step = 5,
@@ -688,7 +731,7 @@ OrbitSliders.radius = Tabs.Orbit:Slider({
     end,
 })
 
-OrbitSliders.speed = Tabs.Orbit:Slider({
+OrbitSliders.speed = Orbit:Slider({
     Title = "Speed",
     Desc = "Angular speed in radians per second.",
     Step = 0.1,
@@ -700,7 +743,7 @@ OrbitSliders.speed = Tabs.Orbit:Slider({
     end,
 })
 
-Tabs.Orbit:Button({
+Orbit:Button({
     Title = "Restore orbit defaults",
     Desc = "Height 1000 · Radius 100 · Speed 0.8",
     Icon = "rotate-ccw",
@@ -753,16 +796,52 @@ local WindowControls = Tabs.Settings:Section({
     BoxBorder = true,
 })
 
+local WindowKeyControl, NoclipKeyControl
+
+local function handleNoclipInput(input, processed)
+    if not runtime.alive or processed or UserInputService:GetFocusedTextBox() then return end
+    if input.UserInputType == Enum.UserInputType.Keyboard
+        and input.KeyCode == Enum.KeyCode[config.noclipKey] then
+        setToggle("noclip", not state.noclip, "Noclip")
+    end
+end
+
+local function setNoclipKey(value)
+    local name = tostring(value)
+    if not Enum.KeyCode[name] then return end
+    if name == config.windowKey then
+        if NoclipKeyControl then NoclipKeyControl:Set(config.noclipKey) end
+        setStatus("Noclip key · choose a different key from Window key")
+        return
+    end
+    config.noclipKey = name
+    setStatus("Noclip key · " .. name)
+end
+
+local function setFloatingButton(enabled)
+    enabled = enabled == true
+    config.showFloatingButton = enabled
+    Window.IsOpenButtonEnabled = enabled
+    if Window.OpenButtonMain then
+        Window.OpenButtonMain:Visible(enabled and Window.Closed == true)
+    end
+end
+
 local function setWindowKey(value)
     local name = typeof(value) == "EnumItem" and value.Name or tostring(value)
     local key = Enum.KeyCode[name]
     if not key then return end
+    if name == config.noclipKey then
+        if WindowKeyControl then WindowKeyControl:Set(config.windowKey) end
+        setStatus("Window key · choose a different key from Noclip key")
+        return
+    end
     Window:SetToggleKey(key)
     config.windowKey = name
     setStatus("Window key · " .. name)
 end
 
-WindowControls:Dropdown({
+WindowKeyControl = WindowControls:Dropdown({
     Title = "Window key",
     Desc = "Select a shortcut. Applied immediately; do not use while typing in chat.",
     Values = {"RightShift", "LeftAlt", "RightAlt", "Insert", "Home", "F4", "F6", "F8"},
@@ -770,6 +849,25 @@ WindowControls:Dropdown({
     AllowNone = false,
     Callback = setWindowKey,
 })
+
+NoclipKeyControl = WindowControls:Dropdown({
+    Title = "Noclip key",
+    Desc = "Toggle noclip without opening the panel. Ignored while typing.",
+    Values = {"RightAlt", "LeftAlt", "RightShift", "Insert", "Home", "F4", "F6", "F8"},
+    Value = config.noclipKey,
+    AllowNone = false,
+    Callback = setNoclipKey,
+})
+
+WindowControls:Toggle({
+    Title = "Show floating N button",
+    Desc = "Hide the minimized logo. Your Window key can still reopen the panel.",
+    Icon = "eye",
+    Value = true,
+    Callback = setFloatingButton,
+})
+
+connect(UserInputService.InputBegan, handleNoclipInput)
 
 WindowControls:Button({
     Title = "Unload NKS",
@@ -864,11 +962,12 @@ local function safestItemSpawn(threat)
 end
 
 local function currentRoundPhase(roundStatus, timeLeft, mapLoading, voting)
+    if mapLoading then return nil end
     if voting then
         return "Map voting"
     end
 
-    if roundStatus == 1 and timeLeft <= 30 and not mapLoading then
+    if roundStatus == 1 and type(timeLeft) == "number" and timeLeft <= 30 then
         return "Intermission"
     end
 
@@ -883,7 +982,7 @@ local function sendRoundCommand(phase)
     end)
 
     if not ok then
-        setStatus("Auto Time Skip · " .. tostring(err))
+        setStatus("Time Skip · " .. tostring(err))
         return false
     end
 
@@ -891,7 +990,7 @@ local function sendRoundCommand(phase)
     runtime.lastCommandPhase = phase
     setStatus(phase .. " · sent " .. config.roundCommand)
     WindUI:Notify({
-        Title = "Auto Time Skip",
+        Title = "Time Skip",
         Content = phase .. " · " .. config.roundCommand,
         Icon = "timer",
         Duration = 2,
@@ -923,6 +1022,48 @@ local function sendSpecialRoundCommand(phase)
         Duration = 2,
     })
     return true
+end
+
+local function checkRoundAutomation()
+    local roundStatus = ServerStateRegistryService:Get("RoundStatus")
+    local timeLeft = ServerStateRegistryService:Get("Time")
+    local mapLoading = ServerStateRegistryService:Get("MapLoading") == true
+    local voting = ServerStateRegistryService:Get("Voting") == true
+    -- Loading is a pause, not confirmation that the previous phase ended.
+    if mapLoading then return end
+    local phase = currentRoundPhase(roundStatus, timeLeft, mapLoading, voting)
+
+    if phase ~= runtime.roundPhase then
+        runtime.roundPhase = phase
+        runtime.roundCommandSent = false
+        runtime.specialRoundSent = false
+    end
+
+    if roundStatus ~= runtime.lastRoundStatus then
+        runtime.lastRoundStatus = roundStatus
+        if roundStatus == 2 then runtime.activeRoundCommandSent = false end
+    end
+
+    if os.clock() - runtime.lastRoundAttempt < config.roundRetryInterval then return end
+
+    if phase == "Intermission" and config.specialRound and not runtime.specialRoundSent then
+        runtime.specialRoundSent = sendSpecialRoundCommand(phase)
+        return
+    end
+
+    local skipPhase = (phase == "Map voting" and state.skipVote)
+        or (phase == "Intermission" and state.skipIntermission)
+    if skipPhase and not runtime.roundCommandSent then
+        runtime.roundCommandSent = sendRoundCommand(phase)
+    elseif state.playtimeTwoMinutes
+        and roundStatus == 2
+        and not voting
+        and type(timeLeft) == "number"
+        and timeLeft <= config.activeRoundTimeTrigger
+        and not runtime.activeRoundCommandSent
+    then
+        runtime.activeRoundCommandSent = sendRoundCommand("Playtime · two-minute mark")
+    end
 end
 
 connect(LocalPlayer.Idled, function()
@@ -964,46 +1105,7 @@ connect(RunService.Heartbeat, function(dt)
     runtime.roundClock += dt
     if runtime.roundClock >= config.roundCheckInterval then
         runtime.roundClock = 0
-        local roundStatus = ServerStateRegistryService:Get("RoundStatus") or 0
-        local timeLeft = ServerStateRegistryService:Get("Time") or 0
-        local mapLoading = ServerStateRegistryService:Get("MapLoading") == true
-        local voting = ServerStateRegistryService:Get("Voting") == true
-        local phase = currentRoundPhase(roundStatus, timeLeft, mapLoading, voting)
-
-        if phase ~= runtime.roundPhase then
-            runtime.roundPhase = phase
-            runtime.roundCommandSent = false
-            runtime.specialRoundSent = false
-        end
-
-        if roundStatus ~= runtime.lastRoundStatus then
-            runtime.lastRoundStatus = roundStatus
-            if roundStatus == 2 then
-                runtime.activeRoundCommandSent = false
-            end
-        end
-
-        if state.autoRound
-            and phase
-            and not runtime.roundCommandSent
-            and os.clock() - runtime.lastRoundAttempt >= config.roundRetryInterval
-        then
-            local needsSpecialRound = phase == "Intermission" and config.specialRound ~= nil
-            if needsSpecialRound and not runtime.specialRoundSent then
-                runtime.specialRoundSent = sendSpecialRoundCommand(phase)
-            else
-                runtime.roundCommandSent = sendRoundCommand(phase)
-            end
-        end
-
-        if state.autoRound
-            and roundStatus == 2
-            and timeLeft <= config.activeRoundTimeTrigger
-            and not runtime.activeRoundCommandSent
-            and os.clock() - runtime.lastRoundAttempt >= config.roundRetryInterval
-        then
-            runtime.activeRoundCommandSent = sendRoundCommand("Round · two-minute mark")
-        end
+        checkRoundAutomation()
     end
 
     if not root then return end
