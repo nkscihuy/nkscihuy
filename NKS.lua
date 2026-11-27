@@ -663,7 +663,7 @@ do
                     connections = {},
                     tabs = {},
                     floatingEnabled = true,
-                    visible = true,
+                    visible = not d.ShowFreeNotice,
                     consumedKeys = setmetatable({}, {
                         __mode = 'k',
                     }),
@@ -706,6 +706,7 @@ do
                 e.panel = e:Make('Frame', g, {
                     Name = 'Panel',
                     Size = UDim2.fromOffset(820, 560),
+                    Visible = e.visible,
                 }, 'panel')
 
                 e:Outline(e.panel, 3)
@@ -948,6 +949,49 @@ do
                 )
                     e:BindCamera()
                 end)
+                if d.ShowFreeNotice then
+                    local notice = e:Make('Frame', g, {
+                        Name = 'FreeNotice',
+                        AnchorPoint = Vector2.new(0.5, 0.5),
+                        Position = UDim2.fromScale(0.5, 0.5),
+                        Size = UDim2.new(1, -32, 0, 180),
+                    }, 'panel')
+                    e.notice = notice
+                    e:Make('UISizeConstraint', notice, { MaxSize = Vector2.new(400, 180) })
+                    e:Outline(notice, 3)
+
+                    local header = e:Make('Frame', notice, {
+                        Size = UDim2.new(1, 0, 0, 44),
+                    }, 'accent')
+                    e:Studs(header, 9)
+                    e:Text(header, 'NKS INI GRATIS', {
+                        Position = UDim2.fromOffset(14, 0),
+                        Size = UDim2.new(1, -28, 1, 0),
+                        Font = Enum.Font.GothamBlack,
+                        TextSize = 19,
+                    }, 'accentText')
+                    e:Text(notice, 'Script ini dibagikan gratis. Kalau ada yang minta bayaran buat akses NKS, jangan bayar.', {
+                        Position = UDim2.fromOffset(14, 50),
+                        Size = UDim2.new(1, -28, 0, 64),
+                    })
+                    local continueButton = e:Make('TextButton', notice, {
+                        Name = 'Continue',
+                        Text = 'Lanjut ke menu',
+                        Font = Enum.Font.GothamBold,
+                        TextSize = 14,
+                        Position = UDim2.fromOffset(14, 122),
+                        Size = UDim2.new(1, -28, 0, 44),
+                    }, 'accent')
+                    e.theme:Bind(continueButton, 'TextColor3', 'accentText')
+                    e:Outline(continueButton, 2)
+                    e:Listen(continueButton.Activated, function()
+                        e.notice = nil
+                        e.theme:Forget(notice)
+                        notice:Destroy()
+                        e:SetVisible(true)
+                    end)
+                end
+
                 e:SetToggleKey(e.key)
                 e:BindCamera()
 
@@ -1084,7 +1128,7 @@ do
                     d.consumedKeys[e] = true
                 end
 
-                return d.keyCapture ~= nil or d.consumedKeys[e] == true
+                return d.notice ~= nil or d.keyCapture ~= nil or d.consumedKeys[e] == true
             end
             function c.BeginKeyCapture(d, e, f)
                 if not d.alive or not d.visible then
@@ -1261,7 +1305,7 @@ do
                 d.keyLabel.Text = e.Name .. ' \u{b7} Show / hide'
             end
             function c.SetVisible(d, e)
-                if not d.alive then
+                if not d.alive or d.notice then
                     return
                 end
 
@@ -1276,7 +1320,7 @@ do
             end
             function c.SetFloatingButton(d, e)
                 d.floatingEnabled = e == true
-                d.floating.Visible = d.floatingEnabled and not d.visible
+                d.floating.Visible = not d.notice and d.floatingEnabled and not d.visible
             end
             function c.SetTransparency(d, e)
                 d.panel.BackgroundTransparency = e and 0.22 or 0
@@ -1845,6 +1889,7 @@ local s = n.new{
     Title = 'NKS  /  Evade',
     ToggleKey = Enum.KeyCode.RightShift,
     Theme = 'Cyan Stud',
+    ShowFreeNotice = true,
 }
 local t = {
     Dashboard = s:Tab{
